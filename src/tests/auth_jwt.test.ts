@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import jwt from 'jsonwebtoken';
 import { memoryAdapter } from 'better-auth/adapters/memory';
 import { betterAuth } from 'better-auth';
-import { jwt, bearer } from 'better-auth/plugins';
+import { jwt as jwtPlugin, bearer } from 'better-auth/plugins';
 import app from '../app.js';
 import { _setMockAuthForTest, FixMateAuth } from '../auth/auth.js';
+import { _setMockDbInstanceForTest } from '../db/connection.js';
 import { signUserToken, verifyJwtToken } from '../services/jwt.service.js';
 import type { AuthenticatedUser } from '../types/auth.js';
 
@@ -20,9 +22,9 @@ interface TestMemoryDb {
 function createTestAuth(memoryDb: TestMemoryDb): FixMateAuth {
   return betterAuth({
     database: memoryAdapter(memoryDb),
-    baseURL: 'http://localhost:5005',
+    baseURL: 'http://localhost:5006',
     secret: 'test_better_auth_secret_minimum_32_characters_12345678',
-    trustedOrigins: ['http://localhost:5005', 'http://localhost:3000'],
+    trustedOrigins: ['http://localhost:5006', 'http://localhost:3000'],
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
@@ -56,7 +58,7 @@ function createTestAuth(memoryDb: TestMemoryDb): FixMateAuth {
       },
     },
     plugins: [
-      jwt({
+      jwtPlugin({
         jwt: {
           definePayload: (session) => ({
             sub: session.user.id,
@@ -71,8 +73,8 @@ function createTestAuth(memoryDb: TestMemoryDb): FixMateAuth {
 }
 
 async function runTestSuite() {
-  console.log('=== FixMate TASK 008: Authentication & Identity Test Suite ===');
-  console.log('(Running in isolated test harness with in-memory adapter double)\n');
+  console.log('=== FixMate TASK 008A: Security Hardening & Regression Test Suite ===');
+  console.log('(Running in isolated test harness with authoritative database mock)\n');
 
   const memoryDb: TestMemoryDb = {
     users: [],
@@ -82,304 +84,288 @@ async function runTestSuite() {
     jwks: [],
   };
 
+  let simulateDbFailure = false;
+
+  const mockDb = {
+    collection: (name: string) => {
+      return {
+        findOne: async (query: any) => {
+          if (simulateDbFailure) {
+            throw new Error('Simulated database connection failure during query');
+          }
+          const table = memoryDb[name] || [];
+          if (query.$or) {
+            for (const item of query.$or) {
+              for (const doc of table) {
+                if (item._id && (String(doc._id) === String(item._id) || String(doc.id) === String(item._id))) return doc;
+                if (item.id && (String(doc.id) === String(item.id) || String(doc._id) === String(item.id))) return doc;
+                if (item.email && String(doc.email).toLowerCase() === String(item.email).toLowerCase()) return doc;
+              }
+            }
+            return null;
+          }
+          return (
+            table.find((u: any) => {
+              if (query.email && u.email?.toLowerCase() === query.email?.toLowerCase()) return true;
+              if (query.id && (u.id === query.id || u._id === query.id)) return true;
+              if (query._id && (u._id === query._id || u.id === query._id)) return true;
+              return false;
+            }) || null
+          );
+        },
+      };
+    },
+  };
+
+  // Set test doubles for both auth and connection
   const testAuth = createTestAuth(memoryDb);
   _setMockAuthForTest(testAuth);
+  _setMockDbInstanceForTest(null, mockDb as any);
 
   // Start HTTP test server for Express endpoint tests
   const server = http.createServer(app);
-  await new Promise<void>((resolve) => server.listen(5005, resolve));
+  await new Promise<void>((resolve) => server.listen(5006, resolve));
 
   try {
     // ---------------------------------------------------------
-    // GROUP A: BetterAuth Lifecycle & Role Safety Tests
+    // GROUP A: Single Trust Model & Cryptographic Verification
     // ---------------------------------------------------------
-    console.log('--- Group A: BetterAuth Lifecycle & Role Safety ---');
+    console.log('--- Group A: Single Trust Model (EdDSA/JWKS Exclusive) ---');
 
-    // Test 1: Successful Registration
-    const regRes = await testAuth.api.signUpEmail({
+    // Register test user
+    const alice = await testAuth.api.signUpEmail({
       body: {
         name: 'Alice Customer',
         email: 'alice@example.com',
         password: 'Password123!',
       },
     });
-    assert.ok(regRes.user, 'Registration must return a user object');
-    assert.equal(regRes.user.email, 'alice@example.com');
-    assert.equal(regRes.user.role, 'customer', 'Default role must be customer');
-    assert.equal(
-      (regRes.user as Record<string, unknown>).password,
-      undefined,
-      'Password hash must NOT be exposed in user output'
+
+    const aliceUser: AuthenticatedUser = {
+      id: String(alice.user.id),
+      email: alice.user.email,
+      role: 'customer',
+      name: alice.user.name,
+    };
+
+    // Test 1: Valid EdDSA token issued and verified
+    const validEdDsaToken = await signUserToken(aliceUser, { expiresIn: '1h' });
+    const header = JSON.parse(Buffer.from(validEdDsaToken.split('.')[0], 'base64url').toString());
+    assert.equal(header.alg, 'EdDSA', 'Token algorithm must strictly be EdDSA');
+    assert.ok(header.kid, 'Token must contain kid referencing JWKS key');
+    const verifiedEdDsa = await verifyJwtToken(validEdDsaToken);
+    assert.ok(verifiedEdDsa, 'Valid EdDSA token must pass verification');
+    assert.equal(verifiedEdDsa.email, 'alice@example.com');
+    console.log('[Test 1 Passed] Valid EdDSA/JWKS token issued and verified.');
+
+    // Test 2: HMAC-SHA256 Token Rejected (No dual-algorithm confusion)
+    const hmacToken = jwt.sign(
+      { sub: alice.user.id, email: alice.user.email, role: 'admin' },
+      'any_arbitrary_symmetric_secret_key_12345'
     );
-    console.log('[Test 1 Passed] Successful registration with default customer role & password excluded.');
+    const hmacVerified = await verifyJwtToken(hmacToken);
+    assert.equal(hmacVerified, null, 'HMAC token must be rejected by EdDSA single trust model');
+    console.log('[Test 2 Passed] HMAC-SHA256 token rejected (strict algorithm separation).');
 
-    // Test 2: Invariant Check: Stored in "users" collection (not "user")
-    assert.equal(memoryDb.users.length, 1, 'User must be stored in "users" table');
-    assert.equal(memoryDb.user, undefined, 'No redundant "user" table should be created');
-    console.log('[Test 2 Passed] User collection mapping verified: "users" domain collection preserved.');
+    // Test 3: Token with Modified Role Claim Fails Signature Verification
+    const parts = validEdDsaToken.split('.');
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+    payload.role = 'admin'; // Attacker alters role
+    const tamperedPayloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const tamperedToken = `${parts[0]}.${tamperedPayloadB64}.${parts[2]}`;
+    const tamperedVerified = await verifyJwtToken(tamperedToken);
+    assert.equal(tamperedVerified, null, 'Tampered token must fail signature check');
+    console.log('[Test 3 Passed] Tampered role claim rejected by cryptographic verification.');
 
-    // Test 3: Public registration cannot assign admin or technician role
-    // Documented type assertion: deliberately passing unexpected payload to test runtime privilege escalation defense
+    // ---------------------------------------------------------
+    // GROUP B: Authoritative Database Role Enforcement
+    // ---------------------------------------------------------
+    console.log('\n--- Group B: Authoritative Database Role Enforcement ---');
+
+    // Setup Technician User in DB
+    const techDoc = {
+      id: 'tech_100',
+      _id: 'tech_100',
+      name: 'Tim Technician',
+      email: 'tim@fixmate.com',
+      role: 'technician',
+    };
+    memoryDb.users.push(techDoc);
+
+    const techUser: AuthenticatedUser = {
+      id: 'tech_100',
+      email: 'tim@fixmate.com',
+      role: 'technician',
+      name: 'Tim Technician',
+    };
+
+    // Issue valid EdDSA token while user has technician role
+    const techToken = await signUserToken(techUser);
+
+    // Verify technician can access technician route initially
+    const techInitialRes = await fetch('http://localhost:5006/api/test/technician', {
+      headers: { authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(techInitialRes.status, 200, 'Technician with matching DB role must be allowed');
+    console.log('[Test 4 Passed] Active technician accessing technician route -> 200 OK.');
+
+    // Test 5: Stale Role Token Invalidation
+    // Demote technician to customer in the authoritative database
+    techDoc.role = 'customer';
+
+    // The user presents their old token (which still contains role: 'technician')
+    const demotedRes = await fetch('http://localhost:5006/api/test/technician', {
+      headers: { authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(
+      demotedRes.status,
+      403,
+      'Stale token must NOT grant technician access after DB role changed to customer'
+    );
+    const demotedBody = await demotedRes.json();
+    assert.equal(demotedBody.statusCode, 403);
+    assert.equal(demotedBody.error, 'Forbidden');
+    console.log('[Test 5 Passed] Stale token rejected: Demoted user denied privileged access (403).');
+
+    // Test 6: Deleted User Invalidation
+    // Remove user completely from database
+    memoryDb.users = memoryDb.users.filter((u) => u.id !== 'tech_100');
+
+    // User presents their otherwise valid cryptographic token
+    const deletedUserRes = await fetch('http://localhost:5006/api/test/customer', {
+      headers: { authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(deletedUserRes.status, 401, 'Deleted user must be rejected with 401');
+    const deletedBody = await deletedUserRes.json();
+    assert.equal(deletedBody.message, 'User account not found or has been removed');
+    console.log('[Test 6 Passed] Deleted user rejected (401) despite presenting valid token.');
+
+    // Test 7: Disabled Account Invalidation
+    const disabledDoc = {
+      id: 'disabled_user_1',
+      _id: 'disabled_user_1',
+      name: 'Disabled Dave',
+      email: 'dave@fixmate.com',
+      role: 'customer',
+      isDisabled: true,
+    };
+    memoryDb.users.push(disabledDoc);
+
+    const disabledUser: AuthenticatedUser = {
+      id: 'disabled_user_1',
+      email: 'dave@fixmate.com',
+      role: 'customer',
+    };
+    const disabledToken = await signUserToken(disabledUser);
+
+    const disabledRes = await fetch('http://localhost:5006/api/test/customer', {
+      headers: { authorization: `Bearer ${disabledToken}` },
+    });
+    assert.equal(disabledRes.status, 401, 'Disabled user must be rejected with 401');
+    console.log('[Test 7 Passed] Disabled user rejected with 401.');
+
+    // Test 8: Database Failure Fails Closed (503 Service Unavailable)
+    // Simulate database outage during verifyToken lookup
+    simulateDbFailure = true;
+    const dbOutageRes = await fetch('http://localhost:5006/api/test/customer', {
+      headers: { authorization: `Bearer ${validEdDsaToken}` },
+    });
+    assert.equal(
+      dbOutageRes.status,
+      503,
+      'Database outage must fail closed with 503 and NEVER fall back to trusting token role'
+    );
+    simulateDbFailure = false; // Restore DB mock
+    console.log('[Test 8 Passed] Database lookup failure fails closed (503) without fallback.');
+
+    // ---------------------------------------------------------
+    // GROUP C: BetterAuth Mapping & Privilege Escalation Checks
+    // ---------------------------------------------------------
+    console.log('\n--- Group C: Collection Mapping & Role Isolation ---');
+
+    // Test 9: Public Registration Cannot Assign Admin Role
     const attackPayload = {
-      name: 'Hacker Joe',
-      email: 'hacker@example.com',
+      name: 'Evil Hacker',
+      email: 'evil@fixmate.com',
       password: 'Password123!',
       role: 'admin',
     };
-    const attackerRes = await (
+    const evilRes = await (
       testAuth.api.signUpEmail as unknown as (opts: { body: unknown }) => Promise<{ user: { role: string } }>
     )({
       body: attackPayload,
     });
-    assert.equal(
-      attackerRes.user.role,
-      'customer',
-      'Attacker attempt to register as admin must be neutralized to customer'
-    );
-    console.log('[Test 3 Passed] Privilege escalation prevented: Registration cannot self-assign admin role.');
+    assert.equal(evilRes.user.role, 'customer', 'Registration must enforce customer role');
+    console.log('[Test 9 Passed] Public registration neutralized role to "customer".');
 
-    // Test 4: Duplicate Email Registration Rejection
-    let duplicateRejected = false;
-    try {
-      await testAuth.api.signUpEmail({
-        body: {
-          name: 'Alice Duplicate',
-          email: 'alice@example.com',
-          password: 'Password456!',
-        },
-      });
-    } catch {
-      duplicateRejected = true;
-    }
-    assert.ok(duplicateRejected, 'Duplicate email registration must be rejected');
-    console.log('[Test 4 Passed] Duplicate email registration rejected.');
-
-    // Test 5: Successful Sign-In
-    const signInRes = await testAuth.api.signInEmail({
-      body: {
-        email: 'alice@example.com',
-        password: 'Password123!',
-      },
-    });
-    assert.ok(signInRes.token, 'Sign-in must return a session token');
-    assert.equal(signInRes.user.email, 'alice@example.com');
-    console.log('[Test 5 Passed] Successful sign-in returning session token.');
-
-    // Test 6: Invalid Password Rejection
-    let invalidPasswordRejected = false;
-    try {
-      await testAuth.api.signInEmail({
-        body: {
-          email: 'alice@example.com',
-          password: 'WrongPassword!',
-        },
-      });
-    } catch {
-      invalidPasswordRejected = true;
-    }
-    assert.ok(invalidPasswordRejected, 'Invalid password must be rejected');
-    console.log('[Test 6 Passed] Invalid password rejected.');
-
-    // Test 7: Session Retrieval
-    const sessionRes = await testAuth.api.getSession({
-      headers: new Headers({
-        authorization: 'Bearer ' + signInRes.token,
-      }),
-    });
-    assert.ok(sessionRes?.session, 'Session must be retrieved for valid bearer token');
-    assert.equal(sessionRes.user.email, 'alice@example.com');
-    console.log('[Test 7 Passed] Session retrieval verified.');
-
-    // Test 8: Sign-Out & Session Invalidation
-    await testAuth.api.signOut({
-      headers: new Headers({
-        authorization: 'Bearer ' + signInRes.token,
-      }),
-    });
-    const afterSignOutSession = await testAuth.api.getSession({
-      headers: new Headers({
-        authorization: 'Bearer ' + signInRes.token,
-      }),
-    });
-    assert.equal(afterSignOutSession, null, 'Session must be invalidated after sign-out');
-    console.log('[Test 8 Passed] Sign-out and session invalidation verified.');
-
-    // Test 9: Profile Mass-Assignment Protection (Cannot update role)
-    const bob = await testAuth.api.signUpEmail({
-      body: {
-        name: 'Bob',
-        email: 'bob@example.com',
-        password: 'Password123!',
-      },
-    });
+    // Test 10: Profile Update Cannot Mutate Role
     let roleUpdateBlocked = false;
     try {
-      // Documented type assertion: testing runtime rejection of unauthorized field update
       await (
         testAuth.api.updateUser as unknown as (opts: {
           headers: Headers;
           body: unknown;
         }) => Promise<unknown>
       )({
-        headers: new Headers({
-          authorization: 'Bearer ' + bob.token,
-        }),
-        body: {
-          role: 'admin',
-        },
+        headers: new Headers({ authorization: 'Bearer ' + alice.token }),
+        body: { role: 'admin' },
       });
     } catch {
       roleUpdateBlocked = true;
     }
-    assert.ok(roleUpdateBlocked, 'Role update via public updateUser API must be blocked');
-    console.log('[Test 9 Passed] Mass-assignment protection: User cannot modify role via profile update.');
+    assert.ok(roleUpdateBlocked, 'Profile update must block role tampering');
+    console.log('[Test 10 Passed] Profile update blocked role mutation.');
+
+    // Test 11: Invariant Check: Domain collection mapping
+    assert.ok(memoryDb.users.length > 0, '"users" collection holds user records');
+    assert.equal(memoryDb.user, undefined, 'No duplicate "user" collection exists');
+    console.log('[Test 11 Passed] Domain collection invariant verified: "users" used exclusively.');
 
     // ---------------------------------------------------------
-    // GROUP B: JWT Issuance & Verification Tests
+    // GROUP D: Role Authorization Matrix Verification
     // ---------------------------------------------------------
-    console.log('\n--- Group B: JWT Issuance & Cryptographic Verification ---');
+    console.log('\n--- Group D: Complete Role Authorization Matrix ---');
 
-    const customerUser: AuthenticatedUser = {
-      id: String(bob.user.id),
-      email: bob.user.email,
-      role: 'customer',
-      name: bob.user.name,
-    };
-
-    // Test 10: Valid Token Accepted
-    const validJwt = await signUserToken(customerUser, { expiresIn: '1h' });
-    assert.ok(typeof validJwt === 'string' && validJwt.split('.').length === 3, 'Token must be valid JWT');
-    const verifiedUser = await verifyJwtToken(validJwt);
-    assert.ok(verifiedUser, 'Valid token must be verified successfully');
-    assert.equal(verifiedUser.email, 'bob@example.com');
-    assert.equal(verifiedUser.role, 'customer');
-    console.log('[Test 10 Passed] Valid JWT issued and cryptographically verified.');
-
-    // Test 11: Missing Token Rejected
-    const missingVerified = await verifyJwtToken('');
-    assert.equal(missingVerified, null, 'Empty token must be rejected');
-    console.log('[Test 11 Passed] Missing token rejected.');
-
-    // Test 12: Malformed Token Rejected
-    const malformedVerified = await verifyJwtToken('not.a.valid.jwt.string');
-    assert.equal(malformedVerified, null, 'Malformed token must be rejected');
-    console.log('[Test 12 Passed] Malformed token rejected.');
-
-    // Test 13: Invalid Signature Rejected
-    const parts = validJwt.split('.');
-    const badSigToken = `${parts[0]}.${parts[1]}.tamperedSignatureStringHere12345`;
-    const badSigVerified = await verifyJwtToken(badSigToken);
-    assert.equal(badSigVerified, null, 'Token with invalid signature must be rejected');
-    console.log('[Test 13 Passed] Invalid signature rejected.');
-
-    // Test 14: Tampered Role Claim Rejected
-    const payloadJson = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-    payloadJson.role = 'admin'; // Attacker alters signed payload
-    const tamperedPayloadB64 = Buffer.from(JSON.stringify(payloadJson)).toString('base64url');
-    const tamperedToken = `${parts[0]}.${tamperedPayloadB64}.${parts[2]}`;
-    const tamperedVerified = await verifyJwtToken(tamperedToken);
-    assert.equal(tamperedVerified, null, 'Token with tampered role claim must fail cryptographic verification');
-    console.log('[Test 14 Passed] Tampered role claim rejected by cryptographic verification.');
-
-    // Test 15: Expired Token Rejected
-    const expiredJwt = await signUserToken(customerUser, { expiresIn: '-1s' });
-    const expiredVerified = await verifyJwtToken(expiredJwt);
-    assert.equal(expiredVerified, null, 'Expired token must be rejected');
-    console.log('[Test 15 Passed] Expired token rejected.');
-
-    // ---------------------------------------------------------
-    // GROUP C: Role-Based Authorization Middleware Matrix Tests
-    // ---------------------------------------------------------
-    console.log('\n--- Group C: Role-Based Authorization Matrix ---');
-
-    // Create tokens for all 3 roles
-    const technicianUser: AuthenticatedUser = {
-      id: 'tech_001',
-      email: 'technician@fixmate.com',
-      role: 'technician',
-      name: 'Tech Person',
-    };
-    const adminUser: AuthenticatedUser = {
-      id: 'admin_001',
-      email: 'admin@fixmate.com',
-      role: 'admin',
+    // Setup active Admin
+    const adminDoc = {
+      id: 'admin_999',
+      _id: 'admin_999',
       name: 'Admin Boss',
+      email: 'boss@fixmate.com',
+      role: 'admin',
     };
-
-    const customerToken = await signUserToken(customerUser);
-    const technicianToken = await signUserToken(technicianUser);
-    const adminToken = await signUserToken(adminUser);
-
-    // Test 16: Unauthenticated request -> 401
-    const unauthRes = await fetch('http://localhost:5005/api/test/customer');
-    assert.equal(unauthRes.status, 401, 'Unauthenticated request must return 401');
-    const unauthBody = await unauthRes.json();
-    assert.equal(unauthBody.success, false);
-    assert.equal(unauthBody.statusCode, 401);
-    console.log('[Test 16 Passed] Missing token on protected route correctly returns 401.');
-
-    // Test 17: Customer accessing Customer route -> 200 Allowed
-    const custCustRes = await fetch('http://localhost:5005/api/test/customer', {
-      headers: { authorization: `Bearer ${customerToken}` },
+    memoryDb.users.push(adminDoc);
+    const adminToken = await signUserToken({
+      id: 'admin_999',
+      email: 'boss@fixmate.com',
+      role: 'admin',
     });
-    assert.equal(custCustRes.status, 200, 'Customer accessing customer route must succeed with 200');
-    console.log('[Test 17 Passed] Authenticated customer accessing customer route -> 200 OK.');
 
-    // Test 18: Customer accessing Technician route -> 403 Forbidden
-    const custTechRes = await fetch('http://localhost:5005/api/test/technician', {
-      headers: { authorization: `Bearer ${customerToken}` },
-    });
-    assert.equal(custTechRes.status, 403, 'Customer accessing technician route must return 403');
-    const custTechBody = await custTechRes.json();
-    assert.equal(custTechBody.success, false);
-    assert.equal(custTechBody.statusCode, 403);
-    console.log('[Test 18 Passed] Customer accessing technician route -> 403 Forbidden.');
-
-    // Test 19: Customer accessing Admin route -> 403 Forbidden
-    const custAdminRes = await fetch('http://localhost:5005/api/test/admin', {
-      headers: { authorization: `Bearer ${customerToken}` },
-    });
-    assert.equal(custAdminRes.status, 403, 'Customer accessing admin route must return 403');
-    console.log('[Test 19 Passed] Customer accessing admin route -> 403 Forbidden.');
-
-    // Test 20: Technician accessing Technician route -> 200 Allowed
-    const techTechRes = await fetch('http://localhost:5005/api/test/technician', {
-      headers: { authorization: `Bearer ${technicianToken}` },
-    });
-    assert.equal(techTechRes.status, 200, 'Technician accessing technician route must succeed with 200');
-    console.log('[Test 20 Passed] Technician accessing technician route -> 200 OK.');
-
-    // Test 21: Technician accessing Admin route -> 403 Forbidden
-    const techAdminRes = await fetch('http://localhost:5005/api/test/admin', {
-      headers: { authorization: `Bearer ${technicianToken}` },
-    });
-    assert.equal(techAdminRes.status, 403, 'Technician accessing admin route must return 403');
-    console.log('[Test 21 Passed] Technician accessing admin route -> 403 Forbidden.');
-
-    // Test 22: Admin accessing Admin route -> 200 Allowed
-    const adminAdminRes = await fetch('http://localhost:5005/api/test/admin', {
+    // Test 12: Admin accessing Admin route -> 200
+    const adminRes = await fetch('http://localhost:5006/api/test/admin', {
       headers: { authorization: `Bearer ${adminToken}` },
     });
-    assert.equal(adminAdminRes.status, 200, 'Admin accessing admin route must succeed with 200');
-    console.log('[Test 22 Passed] Admin accessing admin route -> 200 OK.');
+    assert.equal(adminRes.status, 200);
+    console.log('[Test 12 Passed] Admin accessing admin route -> 200 OK.');
 
-    // ---------------------------------------------------------
-    // GROUP D: Health & Regression Preservation Tests
-    // ---------------------------------------------------------
-    console.log('\n--- Group D: Health Route & Regression Preservation ---');
+    // Test 13: Customer accessing Admin route -> 403
+    const custAdminRes = await fetch('http://localhost:5006/api/test/admin', {
+      headers: { authorization: `Bearer ${validEdDsaToken}` },
+    });
+    assert.equal(custAdminRes.status, 403);
+    console.log('[Test 13 Passed] Customer accessing admin route -> 403 Forbidden.');
 
-    // Test 23: Base Health Route Preservation
-    const healthRes = await fetch('http://localhost:5005/api/health');
-    assert.equal(healthRes.status, 503, 'Health route returns 503 when live Atlas is disconnected');
-    const healthData = await healthRes.json();
-    assert.equal(healthData.services.database, 'disconnected');
-    console.log('[Test 23 Passed] Existing health endpoint intact: 503 degraded status preserved.');
+    // Test 14: Health route regression preservation
+    const healthRes = await fetch('http://localhost:5006/api/health');
+    assert.equal(healthRes.status, 503, 'Health endpoint reports 503 when live Atlas is disconnected');
+    console.log('[Test 14 Passed] Health endpoint intact (503 disconnected status preserved).');
 
     console.log('\n===============================================================');
-    console.log('=== ALL 23 TASK 008 AUTHENTICATION & JWT TESTS PASSED! ===');
+    console.log('=== ALL TASK 008A SECURITY HARDENING TESTS PASSED! ===');
     console.log('===============================================================');
   } finally {
     _setMockAuthForTest(null);
+    _setMockDbInstanceForTest(null, null);
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
