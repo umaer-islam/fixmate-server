@@ -1,9 +1,17 @@
+import dns from 'node:dns';
 import app from './app.js';
 import { env } from './config/env.js';
 import { connectDB, closeDB } from './db/connection.js';
 import { initializeIndexes } from './db/indexes.js';
 import { initAuth } from './auth/auth.js';
 import type { Server } from 'http';
+
+// Configure public DNS resolvers to ensure MongoDB Atlas SRV records resolve reliably on Windows
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch {
+  // Fall back to system default if custom DNS assignment is restricted
+}
 
 let server: Server | null = null;
 let isShuttingDown = false;

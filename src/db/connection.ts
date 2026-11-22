@@ -47,7 +47,7 @@ export async function connectDB(customUri?: string): Promise<Db> {
         connectTimeoutMS: env.MONGODB_TIMEOUT_MS,
         serverApi: {
           version: ServerApiVersion.v1,
-          strict: true,
+          strict: false,
           deprecationErrors: true,
         },
       });
