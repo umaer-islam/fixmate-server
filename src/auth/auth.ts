@@ -14,15 +14,22 @@ export function createAuthInstance(db: Db) {
   const allowedOrigins = [
     cleanUrl(env.CLIENT_URL),
     'https://fixmate23.vercel.app',
+    'https://fixmate-server.onrender.com',
     'http://localhost:3000',
     'http://localhost:5000',
     cleanUrl(env.BETTER_AUTH_URL),
   ].filter(Boolean);
 
+  const activeBaseUrl =
+    cleanUrl(env.BETTER_AUTH_URL) ||
+    (env.NODE_ENV === 'production'
+      ? 'https://fixmate-server.onrender.com'
+      : 'http://localhost:5000');
+
   return betterAuth({
     database: mongodbAdapter(db),
     secret: env.BETTER_AUTH_SECRET,
-    baseURL: env.BETTER_AUTH_URL,
+    baseURL: activeBaseUrl,
     trustedOrigins: allowedOrigins,
     emailAndPassword: {
       enabled: true,

@@ -14,7 +14,7 @@ const envSchema = z
         return parsed;
       }),
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-    CLIENT_URL: z.string().default('http://localhost:3000'),
+    CLIENT_URL: z.string().default(process.env.NODE_ENV === 'production' ? 'https://fixmate23.vercel.app' : 'http://localhost:3000'),
     MONGODB_URI: z.string().optional(),
     DATABASE_URL: z.string().optional(),
     DB_NAME: z.string().default('fixmate'),
@@ -26,9 +26,9 @@ const envSchema = z
         if (isNaN(parsed)) return 5000;
         return parsed;
       }),
-    JWT_SECRET: z.string().default('fixmate_dev_jwt_secret_minimum_32_characters_12345678'),
-    BETTER_AUTH_SECRET: z.string().default('fixmate_dev_better_auth_secret_minimum_32_chars_12345'),
-    BETTER_AUTH_URL: z.string().default('http://localhost:5000'),
+    JWT_SECRET: z.string().default('df46d055000c95c41bcd1f71ddd8962e6483b9d4b2549eb8ed94ecc2200d7e15'),
+    BETTER_AUTH_SECRET: z.string().default('87a95ad52002bf84759c4320b7e45eede2ace9058ad1ca6c7096ed5c306e3339'),
+    BETTER_AUTH_URL: z.string().default(process.env.NODE_ENV === 'production' ? 'https://fixmate-server.onrender.com' : 'http://localhost:5000'),
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
     IMGBB_API_KEY: z.string().optional(),

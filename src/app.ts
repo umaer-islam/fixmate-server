@@ -80,11 +80,17 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
 
 // 1. BetterAuth Handler mounted under /api/auth/* before conflicting routes
-const authHandler = (req: Request, res: Response) => {
-  return toNodeHandler(getAuth())(req, res);
+const authHandler = async (req: Request, res: Response, next: any) => {
+  try {
+    return await toNodeHandler(getAuth())(req, res);
+  } catch (err) {
+    console.error('[BetterAuth Request Error]:', err);
+    next(err);
+  }
 };
 
 app.all('/api/auth', authHandler);
+app.all('/api/auth/*', authHandler);
 app.all('/api/auth/{*splat}', authHandler);
 
 // 2. Base API Health Route
