@@ -24,19 +24,30 @@ const app = express();
 // Security Headers via Helmet
 app.use(helmet());
 
-// Strict CORS Configuration (No wildcard with credentials)
+// Strict CORS Configuration (Handles exact domains & Vercel deployments)
+const cleanUrl = (url?: string) => (url ? url.replace(/\/+$/, '') : '');
+
 const allowedOrigins = [
-  env.CLIENT_URL,
+  cleanUrl(env.CLIENT_URL),
+  'https://fixmate23.vercel.app',
   'http://localhost:3000',
   'http://localhost:5000',
-  env.BETTER_AUTH_URL,
+  cleanUrl(env.BETTER_AUTH_URL),
 ].filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin) {
+        return callback(null, true);
+      }
+      const normalized = origin.replace(/\/+$/, '');
+      if (
+        allowedOrigins.includes(normalized) ||
+        allowedOrigins.includes(origin) ||
+        normalized.endsWith('.vercel.app')
+      ) {
         callback(null, true);
       } else {
         callback(new Error(`CORS policy violation: origin ${origin} not permitted.`));
