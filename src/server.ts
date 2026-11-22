@@ -2,24 +2,27 @@ import app from './app.js';
 import { env } from './config/env.js';
 import { connectDB, closeDB } from './db/connection.js';
 import { initializeIndexes } from './db/indexes.js';
+import { initAuth } from './auth/auth.js';
 import type { Server } from 'http';
 
 let server: Server | null = null;
 let isShuttingDown = false;
 
 async function bootstrap() {
-  console.log('[Bootstrap] Initializing FixMate backend database foundation...');
+  console.log('[Bootstrap] Initializing FixMate backend database & authentication foundation...');
 
   try {
     // 1. Connect to MongoDB and ping
-    await connectDB();
+    const db = await connectDB();
 
     // 2. Initialize domain collection indexes
     await initializeIndexes();
 
-    console.log('[Bootstrap] Database foundation and indexes successfully initialized.');
+    // 3. Initialize BetterAuth instance with MongoDB connection
+    initAuth(db);
+    console.log('[Bootstrap] BetterAuth authentication foundation initialized successfully.');
 
-    // 3. Start HTTP server ONLY after required initialization succeeds
+    // 4. Start HTTP server ONLY after required initialization succeeds
     server = app.listen(env.PORT, () => {
       console.log(`[Bootstrap] FixMate server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
     });

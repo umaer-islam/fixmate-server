@@ -8,6 +8,7 @@ export interface UserDocument {
   email: string;
   passwordHash?: string;
   phone?: string;
+  area?: string;
   role: UserRole;
   avatarUrl?: string;
   isAvailable?: boolean;
