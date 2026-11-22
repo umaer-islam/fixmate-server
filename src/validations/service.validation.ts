@@ -1,12 +1,6 @@
 import { z } from 'zod';
 
-export const serviceModeEnum = z.enum([
-  'onsite',
-  'remote',
-  'both',
-  'home-visit',
-  'drop-off',
-]);
+export const serviceModeEnum = z.enum(['onsite', 'remote', 'both']);
 
 export const approvalStatusEnum = z.enum(['pending', 'approved', 'rejected']);
 
@@ -57,42 +51,55 @@ export const adminApprovalSchema = z
   })
   .strict();
 
-export const publicServiceQuerySchema = z.object({
-  search: z.string().trim().max(100).optional(),
-  category: z.string().trim().max(50).optional(),
-  serviceMode: serviceModeEnum.optional(),
-  minPrice: z
-    .string()
-    .optional()
-    .transform((val) => (val !== undefined ? parseFloat(val) : undefined))
-    .refine((val) => val === undefined || (!isNaN(val) && val >= 0), {
-      message: 'minPrice must be a valid positive number',
-    }),
-  maxPrice: z
-    .string()
-    .optional()
-    .transform((val) => (val !== undefined ? parseFloat(val) : undefined))
-    .refine((val) => val === undefined || (!isNaN(val) && val >= 0), {
-      message: 'maxPrice must be a valid positive number',
-    }),
-  sort: sortEnum.default('newest'),
-  page: z
-    .string()
-    .default('1')
-    .transform((val) => {
-      const parsed = parseInt(val, 10);
-      return isNaN(parsed) || parsed < 1 ? 1 : parsed;
-    }),
-  limit: z
-    .string()
-    .default('10')
-    .transform((val) => {
-      const parsed = parseInt(val, 10);
-      if (isNaN(parsed) || parsed < 1) return 10;
-      if (parsed > 50) return 50;
-      return parsed;
-    }),
-});
+export const publicServiceQuerySchema = z
+  .object({
+    search: z.string().trim().max(100).optional(),
+    category: z.string().trim().max(50).optional(),
+    serviceMode: serviceModeEnum.optional(),
+    minPrice: z
+      .string()
+      .optional()
+      .transform((val) => (val !== undefined ? parseFloat(val) : undefined))
+      .refine((val) => val === undefined || (!isNaN(val) && val >= 0), {
+        message: 'minPrice must be a valid positive number',
+      }),
+    maxPrice: z
+      .string()
+      .optional()
+      .transform((val) => (val !== undefined ? parseFloat(val) : undefined))
+      .refine((val) => val === undefined || (!isNaN(val) && val >= 0), {
+        message: 'maxPrice must be a valid positive number',
+      }),
+    sort: sortEnum.default('newest'),
+    page: z
+      .string()
+      .default('1')
+      .transform((val) => {
+        const parsed = parseInt(val, 10);
+        return isNaN(parsed) || parsed < 1 ? 1 : parsed;
+      }),
+    limit: z
+      .string()
+      .default('10')
+      .transform((val) => {
+        const parsed = parseInt(val, 10);
+        if (isNaN(parsed) || parsed < 1) return 10;
+        if (parsed > 50) return 50;
+        return parsed;
+      }),
+  })
+  .refine(
+    (data) => {
+      if (data.minPrice !== undefined && data.maxPrice !== undefined) {
+        return data.minPrice <= data.maxPrice;
+      }
+      return true;
+    },
+    {
+      message: 'minPrice cannot exceed maxPrice',
+      path: ['minPrice'],
+    }
+  );
 
 export const technicianServiceQuerySchema = z.object({
   approvalStatus: approvalStatusEnum.optional(),

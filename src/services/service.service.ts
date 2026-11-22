@@ -16,18 +16,36 @@ export function parseServiceId(id: string): ObjectId | string {
   return trimmed;
 }
 
+export function normalizeServiceDocument(doc: ServiceDocument): ServiceDocument {
+  return {
+    ...doc,
+    image: doc.image || doc.imageUrl || '',
+  };
+}
+
+/**
+ * Builds ownership filter strictly anchored on the immutable technicianId.
+ * A technician with a changed email retains ownership of their services.
+ * Another technician with a different ID but same email cannot hijack ownership.
+ * Fallback to technicianEmail is allowed ONLY for legacy records that completely lack technicianId.
+ */
 export function buildTechnicianOwnershipFilter(techUser: AuthenticatedUser): Filter<ServiceDocument> {
   const techId = techUser.id;
   const techEmail = techUser.email.toLowerCase();
 
   const idConditions: Filter<ServiceDocument>[] = [
     { technicianId: techId },
-    { technicianEmail: techEmail },
   ];
 
   if (ObjectId.isValid(techId) && techId.length === 24) {
     idConditions.push({ technicianId: new ObjectId(techId) });
   }
+
+  // Allow email fallback ONLY for legacy records that completely lack technicianId
+  idConditions.push({
+    technicianEmail: techEmail,
+    technicianId: { $in: [null as any, undefined as any] },
+  });
 
   return { $or: idConditions };
 }
@@ -35,7 +53,7 @@ export function buildTechnicianOwnershipFilter(techUser: AuthenticatedUser): Fil
 export interface PublicServiceQueryParams {
   search?: string;
   category?: string;
-  serviceMode?: string;
+  serviceMode?: 'onsite' | 'remote' | 'both';
   minPrice?: number;
   maxPrice?: number;
   sort: 'newest' | 'price_asc' | 'price_desc';
@@ -55,7 +73,7 @@ export async function getPublicServices(params: PublicServiceQueryParams) {
   }
 
   if (params.serviceMode) {
-    filter.serviceMode = params.serviceMode as ServiceDocument['serviceMode'];
+    filter.serviceMode = params.serviceMode;
   }
 
   if (params.minPrice !== undefined || params.maxPrice !== undefined) {
@@ -85,10 +103,12 @@ export async function getPublicServices(params: PublicServiceQueryParams) {
 
   const skip = (params.page - 1) * params.limit;
 
-  const [services, totalCount] = await Promise.all([
+  const [rawServices, totalCount] = await Promise.all([
     servicesCollection.find(filter).sort(sortOption).skip(skip).limit(params.limit).toArray(),
     servicesCollection.countDocuments(filter),
   ]);
+
+  const services = rawServices.map(normalizeServiceDocument);
 
   return {
     services,
@@ -103,11 +123,13 @@ export async function getPublicServiceById(id: string): Promise<ServiceDocument 
   const servicesCollection = getServicesCollection();
   const parsedId = parseServiceId(id);
 
-  return await servicesCollection.findOne({
+  const doc = await servicesCollection.findOne({
     _id: parsedId as unknown as ObjectId,
     approvalStatus: 'approved',
     isAvailable: true,
   });
+
+  return doc ? normalizeServiceDocument(doc) : null;
 }
 
 export async function createTechnicianService(
@@ -119,7 +141,8 @@ export async function createTechnicianService(
 
   const newService: ServiceDocument = {
     ...payload,
-    imageUrl: payload.image,
+    image: payload.image,
+    imageUrl: payload.image, // Backwards compatibility for legacy consumers
     technicianId: techUser.id,
     technicianName: techUser.name || 'Technician',
     technicianEmail: techUser.email.toLowerCase(),
@@ -130,10 +153,10 @@ export async function createTechnicianService(
   };
 
   const insertResult = await servicesCollection.insertOne(newService);
-  return {
+  return normalizeServiceDocument({
     ...newService,
     _id: insertResult.insertedId,
-  };
+  });
 }
 
 export async function getTechnicianServices(
@@ -153,10 +176,12 @@ export async function getTechnicianServices(
 
   const skip = (params.page - 1) * params.limit;
 
-  const [services, totalCount] = await Promise.all([
+  const [rawServices, totalCount] = await Promise.all([
     servicesCollection.find(filter).sort({ createdAt: -1 }).skip(skip).limit(params.limit).toArray(),
     servicesCollection.countDocuments(filter),
   ]);
+
+  const services = rawServices.map(normalizeServiceDocument);
 
   return {
     services,
@@ -175,10 +200,12 @@ export async function getTechnicianServiceById(
   const parsedId = parseServiceId(id);
   const ownershipFilter = buildTechnicianOwnershipFilter(techUser);
 
-  return await servicesCollection.findOne({
+  const doc = await servicesCollection.findOne({
     _id: parsedId as unknown as ObjectId,
     ...ownershipFilter,
   });
+
+  return doc ? normalizeServiceDocument(doc) : null;
 }
 
 export async function updateTechnicianService(
@@ -193,7 +220,7 @@ export async function updateTechnicianService(
   // Critical rule: Technician content edits return approvalStatus to 'pending'
   const updatePayload = {
     ...updateFields,
-    ...(updateFields.image ? { imageUrl: updateFields.image } : {}),
+    ...(updateFields.image ? { image: updateFields.image, imageUrl: updateFields.image } : {}),
     approvalStatus: 'pending' as ServiceApprovalStatus,
     updatedAt: new Date(),
   };
@@ -209,7 +236,7 @@ export async function updateTechnicianService(
     { returnDocument: 'after' }
   );
 
-  return result;
+  return result ? normalizeServiceDocument(result) : null;
 }
 
 export async function updateTechnicianServiceAvailability(
@@ -238,7 +265,7 @@ export async function updateTechnicianServiceAvailability(
     { returnDocument: 'after' }
   );
 
-  return result;
+  return result ? normalizeServiceDocument(result) : null;
 }
 
 export async function deleteTechnicianService(
@@ -288,10 +315,12 @@ export async function getAdminServices(params: {
 
   const skip = (params.page - 1) * params.limit;
 
-  const [services, totalCount] = await Promise.all([
+  const [rawServices, totalCount] = await Promise.all([
     servicesCollection.find(filter).sort({ createdAt: -1 }).skip(skip).limit(params.limit).toArray(),
     servicesCollection.countDocuments(filter),
   ]);
+
+  const services = rawServices.map(normalizeServiceDocument);
 
   return {
     services,
@@ -322,5 +351,5 @@ export async function moderateServiceApproval(
     { returnDocument: 'after' }
   );
 
-  return result;
+  return result ? normalizeServiceDocument(result) : null;
 }

@@ -19,7 +19,7 @@ export interface UserDocument {
 }
 
 export type ServiceApprovalStatus = 'pending' | 'approved' | 'rejected';
-export type ServiceMode = 'onsite' | 'remote' | 'both' | 'home-visit' | 'drop-off';
+export type ServiceMode = 'onsite' | 'remote' | 'both';
 
 export interface ServiceDocument {
   _id?: ObjectId;
@@ -34,7 +34,7 @@ export interface ServiceDocument {
   estimatedDuration: string;
   turnaroundTime?: string;
   serviceArea?: string;
-  image?: string;
+  image: string;
   imageUrl?: string;
   approvalStatus: ServiceApprovalStatus;
   isAvailable: boolean;
