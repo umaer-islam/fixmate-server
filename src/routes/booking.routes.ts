@@ -121,7 +121,27 @@ router.get(
 router.get(
   '/bookings/:id',
   verifyToken,
-  verifyCustomer,
+  (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        message: 'Authentication required',
+        statusCode: 401,
+      });
+      return;
+    }
+    if (req.user.role !== 'customer' && req.user.role !== 'admin') {
+      res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'Access denied: Customer or Admin role required',
+        statusCode: 403,
+      });
+      return;
+    }
+    next();
+  },
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedParams = idParamSchema.safeParse(req.params);
