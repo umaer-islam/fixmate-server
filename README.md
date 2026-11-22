@@ -6,10 +6,12 @@ FixMate API is a robust, production-ready REST service built with Express 5, Typ
 
 ## 🚀 Live API Deployment & Links
 
-- **Production API Base:** `https://fixmate-server.onrender.com/api`
-- **Health Check Endpoint:** `GET /api/health`
-- **Frontend Client:** `https://fixmate-client.vercel.app`
-- **Author:** Umaer Islam
+- **Production API Base:** `https://fixmate-server-h0gr.onrender.com/api`
+- **Health Check Endpoint:** `https://fixmate-server-h0gr.onrender.com/api/health`
+- **Frontend Client (Live Site):** `https://fixmate23.vercel.app`
+- **GitHub Server Repository:** `https://github.com/umaer-islam/fixmate-server`
+- **GitHub Client Repository:** `https://github.com/umaer-islam/fixmate-client`
+- **Author:** Umaer Islam (umaerislam23@gmail.com)
 
 ---
 
