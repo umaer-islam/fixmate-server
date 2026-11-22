@@ -92,6 +92,28 @@ const authHandler = async (req: Request, res: Response, next: any) => {
 app.all('/api/auth', authHandler);
 app.all('/api/auth/{*splat}', authHandler);
 
+// Root & Health Verification Endpoints
+app.get('/', (_req: Request, res: Response) => {
+  res.status(200).json({
+    success: true,
+    service: 'FixMate Backend API',
+    author: 'Umaer Islam',
+    version: '1.0.0',
+    status: 'online',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/api', (_req: Request, res: Response) => {
+  res.status(200).json({
+    success: true,
+    message: 'FixMate API Gateway active',
+    author: 'Umaer Islam',
+    health: '/api/health',
+    services: '/api/services',
+  });
+});
+
 // 2. Base API Health Route
 app.use('/api', healthRoutes);
 
