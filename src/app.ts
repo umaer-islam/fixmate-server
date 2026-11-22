@@ -37,7 +37,7 @@ const allowedOrigins = [
 
 app.use(
   cors({
-    origin: (origin, callback) => {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
       // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
       if (!origin) {
         return callback(null, true);
@@ -71,7 +71,7 @@ app.use(
 app.use(
   express.json({
     limit: '1mb',
-    verify: (req: any, _res, buf) => {
+    verify: (req: any, _res: any, buf: Buffer) => {
       req.rawBody = buf;
     },
   })
