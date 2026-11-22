@@ -55,22 +55,39 @@ export type PaymentStatus = 'unpaid' | 'paid';
 
 export interface BookingDocument {
   _id?: ObjectId;
-  customerId: ObjectId;
-  customerEmail: string;
-  technicianId: ObjectId;
+
+  // Service Snapshot
+  serviceId: ObjectId | string;
+  serviceTitle: string;
+  serviceImage: string;
+  serviceCategory: string;
+  basePrice: number;
+  technicianId: ObjectId | string;
+  technicianName: string;
   technicianEmail: string;
-  serviceId: ObjectId;
-  deviceMakeModel: string;
-  issueDescription: string;
-  serviceAddress: string;
+
+  // Customer Information
+  customerId: ObjectId | string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  address: string;
+
+  // Booking Details & Lifecycle
   preferredDate: Date;
+  problemDescription: string;
   status: BookingStatus;
+  finalAmount: number | null;
   paymentStatus: PaymentStatus;
-  finalAmount?: number | null;
-  rejectionReason?: string | null;
-  completedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
+
+  // Backwards-compatible aliases if referenced in earlier tasks
+  serviceAddress?: string;
+  issueDescription?: string;
+  deviceMakeModel?: string;
+  rejectionReason?: string | null;
+  completedAt?: Date | null;
 }
 
 export type PaymentTransactionStatus = 'succeeded' | 'failed';

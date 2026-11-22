@@ -7,6 +7,7 @@ import { env } from './config/env.js';
 import { getAuth } from './auth/auth.js';
 import healthRoutes from './routes/health.routes.js';
 import serviceRoutes from './routes/service.routes.js';
+import bookingRoutes from './routes/booking.routes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import {
   verifyToken,
@@ -63,6 +64,9 @@ app.use('/api', healthRoutes);
 
 // 3. Domain Services Management Routes
 app.use('/api', serviceRoutes);
+
+// 4. Domain Booking Management Routes
+app.use('/api', bookingRoutes);
 
 // 4. Role Authorization Test/Verification Routes
 app.get(

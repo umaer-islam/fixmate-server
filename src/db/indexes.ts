@@ -119,6 +119,18 @@ export async function initializeIndexes(): Promise<void> {
         key: { status: 1, paymentStatus: 1 },
         name: 'idx_bookings_status_payment',
       },
+      {
+        key: { createdAt: -1 },
+        name: 'idx_bookings_created_at',
+      },
+      {
+        key: { customerId: 1, serviceId: 1 },
+        name: 'idx_bookings_active_unique',
+        unique: true,
+        partialFilterExpression: {
+          status: { $in: ['requested', 'accepted', 'in-progress'] },
+        },
+      },
     ]);
     console.log(' - Bookings indexes initialized.');
 
