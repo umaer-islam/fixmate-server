@@ -82,24 +82,27 @@ export interface BookingDocument {
   createdAt: Date;
   updatedAt: Date;
 
-  // Backwards-compatible aliases if referenced in earlier tasks
-  serviceAddress?: string;
-  issueDescription?: string;
-  deviceMakeModel?: string;
-  rejectionReason?: string | null;
+  // Optional lifecycle timestamps and payment tracking
+  stripeSessionId?: string;
   completedAt?: Date | null;
+  rejectionReason?: string | null;
 }
 
-export type PaymentTransactionStatus = 'succeeded' | 'failed';
+export type PaymentTransactionStatus = 'paid' | 'succeeded' | 'failed';
 
 export interface PaymentDocument {
   _id?: ObjectId;
-  bookingId: ObjectId;
-  customerId: ObjectId;
+  bookingId: ObjectId | string;
+  serviceTitle: string;
+  customerId: ObjectId | string;
+  customerName: string;
   customerEmail: string;
-  technicianId: ObjectId;
+  technicianId: ObjectId | string;
+  technicianName: string;
+  technicianEmail: string;
   amount: number;
   currency: string;
+  transactionId: string;
   stripeSessionId: string;
   stripePaymentIntentId?: string | null;
   paymentStatus: PaymentTransactionStatus;

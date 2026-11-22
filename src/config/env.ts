@@ -64,6 +64,20 @@ const envSchema = z
           message: 'MONGODB_URI or DATABASE_URL is required in production.',
         });
       }
+      if (!data.STRIPE_SECRET_KEY || data.STRIPE_SECRET_KEY.includes('sk_test_placeholder')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['STRIPE_SECRET_KEY'],
+          message: 'Valid STRIPE_SECRET_KEY is required in production.',
+        });
+      }
+      if (!data.STRIPE_WEBHOOK_SECRET || data.STRIPE_WEBHOOK_SECRET.includes('whsec_placeholder')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['STRIPE_WEBHOOK_SECRET'],
+          message: 'Valid STRIPE_WEBHOOK_SECRET is required in production.',
+        });
+      }
     }
   });
 

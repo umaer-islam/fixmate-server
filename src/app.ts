@@ -8,6 +8,7 @@ import { getAuth } from './auth/auth.js';
 import healthRoutes from './routes/health.routes.js';
 import serviceRoutes from './routes/service.routes.js';
 import bookingRoutes from './routes/booking.routes.js';
+import paymentRoutes from './routes/payment.routes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import {
   verifyToken,
@@ -46,8 +47,22 @@ app.use(
   })
 );
 
-// Payload size restrictions to mitigate DoS
-app.use(express.json({ limit: '1mb' }));
+// Stripe Webhook Raw Body Middleware:
+// Must receive the unparsed raw request body before global JSON parser consumes it
+app.use(
+  '/api/payments/webhook',
+  express.raw({ type: 'application/json' })
+);
+
+// Payload size restrictions to mitigate DoS for standard JSON endpoints
+app.use(
+  express.json({
+    limit: '1mb',
+    verify: (req: any, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
 
@@ -67,6 +82,9 @@ app.use('/api', serviceRoutes);
 
 // 4. Domain Booking Management Routes
 app.use('/api', bookingRoutes);
+
+// 5. Domain Payment & Stripe Checkout Routes
+app.use('/api', paymentRoutes);
 
 // 4. Role Authorization Test/Verification Routes
 app.get(
