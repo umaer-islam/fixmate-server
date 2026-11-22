@@ -25,10 +25,6 @@ const envSchema = z.object({
       if (isNaN(parsed)) return 5000;
       return parsed;
     }),
-  ALLOW_DEGRADED_STARTUP: z
-    .string()
-    .optional()
-    .transform((val) => val === 'true' || val === '1'),
   JWT_SECRET: z.string().optional(),
   BETTER_AUTH_SECRET: z.string().optional(),
   BETTER_AUTH_URL: z.string().optional(),

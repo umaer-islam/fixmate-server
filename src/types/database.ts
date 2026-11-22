@@ -17,7 +17,7 @@ export interface UserDocument {
   updatedAt: Date;
 }
 
-export type ServiceStatus = 'pending' | 'approved' | 'rejected';
+export type ServiceApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type ServiceMode = 'home-visit' | 'drop-off' | 'remote';
 
 export interface ServiceDocument {
@@ -28,10 +28,11 @@ export interface ServiceDocument {
   description: string;
   category: string;
   serviceMode: ServiceMode;
-  estimatedPrice: number;
+  basePrice: number;
   turnaroundTime: string;
   imageUrl?: string;
-  status: ServiceStatus;
+  approvalStatus: ServiceApprovalStatus;
+  isAvailable?: boolean;
   moderationNotes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -67,7 +68,7 @@ export interface BookingDocument {
   updatedAt: Date;
 }
 
-export type TransactionStatus = 'succeeded' | 'failed';
+export type PaymentTransactionStatus = 'succeeded' | 'failed';
 
 export interface PaymentDocument {
   _id?: ObjectId;
@@ -79,7 +80,7 @@ export interface PaymentDocument {
   currency: string;
   stripeSessionId: string;
   stripePaymentIntentId?: string | null;
-  status: TransactionStatus;
+  paymentStatus: PaymentTransactionStatus;
   paidAt: Date;
   createdAt: Date;
 }

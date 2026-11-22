@@ -38,8 +38,8 @@ export async function initializeIndexes(): Promise<void> {
         name: 'idx_services_technician_email',
       },
       {
-        key: { status: 1 },
-        name: 'idx_services_status',
+        key: { approvalStatus: 1 },
+        name: 'idx_services_approval_status',
       },
       {
         key: { category: 1 },
@@ -47,14 +47,18 @@ export async function initializeIndexes(): Promise<void> {
       },
       {
         key: { serviceMode: 1 },
-        name: 'idx_services_mode',
+        name: 'idx_services_service_mode',
+      },
+      {
+        key: { isAvailable: 1 },
+        name: 'idx_services_is_available',
       },
       {
         key: { createdAt: -1 },
         name: 'idx_services_created_at',
       },
       {
-        key: { status: 1, category: 1, serviceMode: 1, estimatedPrice: 1 },
+        key: { approvalStatus: 1, category: 1, basePrice: 1 },
         name: 'idx_services_public_browse',
       },
       {
@@ -132,15 +136,19 @@ export async function initializeIndexes(): Promise<void> {
         name: 'idx_payments_customer_email',
       },
       {
-        key: { status: 1 },
-        name: 'idx_payments_status',
+        key: { paymentStatus: 1 },
+        name: 'idx_payments_payment_status',
       },
     ]);
     console.log(' - Payments indexes initialized.');
     console.log('[MongoDB Indexes] All domain collection indexes verified successfully.');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown index initialization error';
-    console.error(`[MongoDB Indexes Error] Failed to initialize indexes: ${message}`);
+  } catch (error: any) {
+    if (error && (error.code === 11000 || error.message?.includes('E11000'))) {
+      console.error(`[MongoDB Indexes Conflict] Cannot create unique index due to existing duplicate records: ${error.message}`);
+    } else {
+      const message = error instanceof Error ? error.message : 'Unknown index initialization error';
+      console.error(`[MongoDB Indexes Error] Failed to initialize indexes: ${message}`);
+    }
     throw error;
   }
 }

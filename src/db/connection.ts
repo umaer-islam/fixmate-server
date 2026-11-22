@@ -3,6 +3,7 @@ import { env, getMongoURI } from '../config/env.js';
 
 let client: MongoClient | null = null;
 let dbInstance: Db | null = null;
+let connectionPromise: Promise<Db> | null = null;
 let isConnecting = false;
 
 function sanitizeMongoURI(uri: string): string {
@@ -16,58 +17,77 @@ function sanitizeMongoURI(uri: string): string {
   }
 }
 
-export async function connectDB(): Promise<Db> {
+export async function connectDB(customUri?: string): Promise<Db> {
+  // If already connected, return existing db singleton
   if (dbInstance && client) {
     return dbInstance;
   }
 
-  if (isConnecting) {
-    while (isConnecting) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    if (dbInstance) return dbInstance;
+  // If another connection attempt is in-flight, await the same promise
+  if (connectionPromise) {
+    return connectionPromise;
   }
 
-  isConnecting = true;
-  const uri = getMongoURI();
+  const uri = customUri || getMongoURI();
 
   if (!uri) {
-    isConnecting = false;
     throw new Error('MongoDB connection string is missing. Please set MONGODB_URI or DATABASE_URL in environment.');
   }
 
-  try {
-    const safeUri = sanitizeMongoURI(uri);
-    console.log(`[MongoDB] Initiating connection to ${safeUri} (Database: ${env.DB_NAME})...`);
+  connectionPromise = (async () => {
+    isConnecting = true;
+    let newClient: MongoClient | null = null;
 
-    const newClient = new MongoClient(uri, {
-      serverSelectionTimeoutMS: env.MONGODB_TIMEOUT_MS,
-      connectTimeoutMS: env.MONGODB_TIMEOUT_MS,
-      serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-      },
-    });
+    try {
+      const safeUri = sanitizeMongoURI(uri);
+      console.log(`[MongoDB] Initiating connection to ${safeUri} (Database: ${env.DB_NAME})...`);
 
-    await newClient.connect();
-    client = newClient;
-    dbInstance = client.db(env.DB_NAME);
+      newClient = new MongoClient(uri, {
+        serverSelectionTimeoutMS: env.MONGODB_TIMEOUT_MS,
+        connectTimeoutMS: env.MONGODB_TIMEOUT_MS,
+        serverApi: {
+          version: ServerApiVersion.v1,
+          strict: true,
+          deprecationErrors: true,
+        },
+      });
 
-    // Verify connectivity with ping command
-    await dbInstance.command({ ping: 1 });
-    console.log(`[MongoDB] Successfully connected and pinged database: ${env.DB_NAME}`);
+      await newClient.connect();
 
-    return dbInstance;
-  } catch (error) {
-    client = null;
-    dbInstance = null;
-    const errorMessage = error instanceof Error ? error.message : 'Unknown connection error';
-    console.error(`[MongoDB Connection Error] Failed to connect: ${errorMessage}`);
-    throw error;
-  } finally {
-    isConnecting = false;
-  }
+      // Check if closeDB() was triggered while connecting
+      if (!isConnecting) {
+        await newClient.close();
+        throw new Error('Connection aborted: closeDB was called during connection initialization.');
+      }
+
+      client = newClient;
+      dbInstance = client.db(env.DB_NAME);
+
+      // Verify connectivity with ping command
+      await dbInstance.command({ ping: 1 });
+      console.log(`[MongoDB] Successfully connected and pinged database: ${env.DB_NAME}`);
+
+      return dbInstance;
+    } catch (error) {
+      if (newClient) {
+        try {
+          await newClient.close();
+        } catch {
+          // ignore close error during connection failure cleanup
+        }
+      }
+      client = null;
+      dbInstance = null;
+      const errorMessage = error instanceof Error ? error.message : 'Unknown connection error';
+      console.error(`[MongoDB Connection Error] Failed to connect: ${errorMessage}`);
+      throw error;
+    } finally {
+      isConnecting = false;
+      connectionPromise = null;
+    }
+  })();
+
+  return connectionPromise;
 }
 
 export function getDB(): Db {
@@ -94,16 +114,38 @@ export async function checkDBHealth(): Promise<boolean> {
 }
 
 export async function closeDB(): Promise<void> {
-  if (client) {
-    console.log('[MongoDB] Closing database connection...');
-    try {
-      await client.close();
-      console.log('[MongoDB] Connection closed cleanly.');
-    } catch (err) {
-      console.error('[MongoDB Error] Error closing connection:', err);
-    } finally {
-      client = null;
-      dbInstance = null;
-    }
+  isConnecting = false;
+  connectionPromise = null;
+
+  if (!client) {
+    dbInstance = null;
+    return;
   }
+
+  const clientToClose = client;
+  client = null;
+  dbInstance = null;
+
+  console.log('[MongoDB] Closing database connection...');
+  try {
+    await clientToClose.close();
+    console.log('[MongoDB] Connection closed cleanly.');
+  } catch (err) {
+    console.error('[MongoDB Error] Error closing connection:', err);
+  }
+}
+
+// Test/Mock helper to inspect or reset internal connection state in isolated unit tests
+export function _resetConnectionStateForTest(): void {
+  client = null;
+  dbInstance = null;
+  connectionPromise = null;
+  isConnecting = false;
+}
+
+export function _setMockDbInstanceForTest(mockClient: MongoClient | null, mockDb: Db | null): void {
+  client = mockClient;
+  dbInstance = mockDb;
+  connectionPromise = null;
+  isConnecting = false;
 }

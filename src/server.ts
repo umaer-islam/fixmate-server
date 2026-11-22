@@ -10,35 +10,30 @@ let isShuttingDown = false;
 async function bootstrap() {
   console.log('[Bootstrap] Initializing FixMate backend database foundation...');
 
-  let dbInitialized = false;
-
   try {
-    // 1. Connect to MongoDB
+    // 1. Connect to MongoDB and ping
     await connectDB();
 
     // 2. Initialize domain collection indexes
     await initializeIndexes();
 
-    dbInitialized = true;
-    console.log('[Bootstrap] Database foundation successfully initialized.');
+    console.log('[Bootstrap] Database foundation and indexes successfully initialized.');
+
+    // 3. Start HTTP server ONLY after required initialization succeeds
+    server = app.listen(env.PORT, () => {
+      console.log(`[Bootstrap] FixMate server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
+    });
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[Bootstrap Error] Database initialization failed: ${errorMsg}`);
+    console.error(`[Bootstrap Fatal] Database initialization failed: ${errorMsg}`);
+    console.error('[Bootstrap Fatal] Server startup aborted. HTTP server will NOT listen.');
 
-    // If in production and degraded startup is not explicitly permitted, abort startup
-    if (env.NODE_ENV === 'production' && !env.ALLOW_DEGRADED_STARTUP) {
-      console.error('[Bootstrap Fatal] Server startup aborted in production due to database initialization failure.');
-      process.exit(1);
-    } else {
-      console.warn('[Bootstrap Warning] Starting server in DEGRADED state (database offline). Health checks will report degraded.');
-    }
+    // Close any partially initialized resources
+    await closeDB();
+
+    // Exit with non-zero status
+    process.exit(1);
   }
-
-  // 3. Start HTTP server
-  server = app.listen(env.PORT, () => {
-    const mode = dbInitialized ? 'HEALTHY' : 'DEGRADED';
-    console.log(`[Bootstrap] FixMate server running on http://localhost:${env.PORT} [${env.NODE_ENV}] [State: ${mode}]`);
-  });
 }
 
 // Graceful Shutdown Handling
