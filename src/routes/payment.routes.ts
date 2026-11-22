@@ -13,6 +13,7 @@ import {
 } from '../services/payment.service.js';
 import {
   verifyToken,
+  verifyCustomer,
   verifyAdmin,
 } from '../middleware/auth.middleware.js';
 import { getPaymentsCollection } from '../db/collections.js';
@@ -26,6 +27,7 @@ const router = Router();
 router.post(
   '/payments/create-checkout-session',
   verifyToken,
+  verifyCustomer,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedBody = createCheckoutSessionSchema.safeParse(req.body);
@@ -157,6 +159,7 @@ router.post(
 router.get(
   '/payments/my',
   verifyToken,
+  verifyCustomer,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedQuery = paymentQuerySchema.safeParse(req.query);
@@ -197,6 +200,7 @@ router.get(
 router.get(
   '/payments/booking/:bookingId',
   verifyToken,
+  verifyCustomer,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedParams = idParamSchema.safeParse({ id: req.params.bookingId });
