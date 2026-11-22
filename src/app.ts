@@ -9,6 +9,8 @@ import healthRoutes from './routes/health.routes.js';
 import serviceRoutes from './routes/service.routes.js';
 import bookingRoutes from './routes/booking.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
+import userRoutes from './routes/user.routes.js';
+import uploadRoutes from './routes/upload.routes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import {
   verifyToken,
@@ -85,6 +87,12 @@ app.use('/api', bookingRoutes);
 
 // 5. Domain Payment & Stripe Checkout Routes
 app.use('/api', paymentRoutes);
+
+// 6. User Profile & Admin Operations Routes
+app.use('/api', userRoutes);
+
+// 7. Media & ImgBB Upload Routes
+app.use('/api', uploadRoutes);
 
 // 4. Role Authorization Test/Verification Routes
 app.get(

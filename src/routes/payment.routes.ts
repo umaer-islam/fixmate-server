@@ -13,7 +13,9 @@ import {
 import {
   verifyToken,
   verifyCustomer,
+  verifyAdmin,
 } from '../middleware/auth.middleware.js';
+import { getPaymentsCollection } from '../db/collections.js';
 
 const router = Router();
 
@@ -178,6 +180,44 @@ router.get(
       res.status(200).json({
         success: true,
         data: result.data,
+        statusCode: 200,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * GET /api/admin/payments
+ * Admin inspects all payments with pagination.
+ */
+router.get(
+  '/admin/payments',
+  verifyToken,
+  verifyAdmin,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const parsedQuery = paymentQuerySchema.safeParse(req.query);
+      const page = parsedQuery.success ? parsedQuery.data.page : 1;
+      const limit = parsedQuery.success ? parsedQuery.data.limit : 10;
+      const skip = (page - 1) * limit;
+
+      const paymentsColl = getPaymentsCollection();
+      const [payments, totalCount] = await Promise.all([
+        paymentsColl.find({}).sort({ paidAt: -1 }).skip(skip).limit(limit).toArray(),
+        paymentsColl.countDocuments({}),
+      ]);
+
+      res.status(200).json({
+        success: true,
+        data: payments,
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: Math.ceil(totalCount / limit) || 1,
+        },
         statusCode: 200,
       });
     } catch (error) {
