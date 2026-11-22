@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
-export const serviceModeEnum = z.enum(['onsite', 'remote', 'both']);
+export const serviceModeEnum = z.enum([
+  'Home Visit',
+  'Shop Drop-off',
+  'home-visit',
+  'drop-off',
+  'onsite',
+  'remote',
+  'both',
+]);
 
 export const approvalStatusEnum = z.enum(['pending', 'approved', 'rejected']);
 

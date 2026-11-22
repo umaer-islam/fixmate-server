@@ -129,8 +129,8 @@ export async function createCheckoutSession(
           customerEmail: customerUser.email.toLowerCase(),
           finalAmount: booking.finalAmount.toString(),
         },
-        success_url: `${env.CLIENT_URL}/dashboard/bookings/${booking._id}?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${env.CLIENT_URL}/dashboard/bookings/${booking._id}?payment=cancelled`,
+        success_url: `${env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${env.CLIENT_URL}/payment/cancel?booking_id=${booking._id}`,
       },
       {
         idempotencyKey: `cs_${booking._id}_${unitAmountInCents}`,
@@ -430,6 +430,204 @@ export async function getBookingPaymentStatus(
       bookingId: booking._id!.toString(),
       paymentStatus: booking.paymentStatus,
       payment,
+    },
+  };
+}
+
+/**
+ * Server-side payment verification through Stripe for /payment/success?session_id=...
+ * 1. Retrieves Checkout Session from Stripe.
+ * 2. Verifies session is paid and in payment mode.
+ * 3. Verifies booking ownership and status eligibility (completed).
+ * 4. Verifies amount and currency against authoritative booking.
+ * 5. Atomically transitions booking to paid and records payment (idempotent with webhook).
+ */
+export async function verifyCheckoutSession(
+  customerUser: AuthenticatedUser,
+  sessionId: string
+): Promise<{
+  success: boolean;
+  status: number;
+  message: string;
+  data?: {
+    paymentId?: string;
+    bookingId: string;
+    amount: number;
+    currency: string;
+    status: string;
+    stripePaymentIntentId?: string;
+    stripeSessionId: string;
+    paidAt: Date;
+    serviceTitle: string;
+  };
+}> {
+  if (!sessionId || typeof sessionId !== 'string') {
+    return {
+      success: false,
+      status: 400,
+      message: 'Valid Stripe session ID is required.',
+    };
+  }
+
+  const stripe = getStripeClient();
+  let session: any;
+  try {
+    session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent'],
+    });
+  } catch (err: any) {
+    return {
+      success: false,
+      status: 404,
+      message: `Failed to retrieve Stripe Checkout Session: ${err.message}`,
+    };
+  }
+
+  if (session.mode !== 'payment' || session.payment_status !== 'paid') {
+    return {
+      success: false,
+      status: 400,
+      message: 'Checkout Session is not in paid status.',
+    };
+  }
+
+  const bookingIdStr = session.metadata?.bookingId;
+  if (!bookingIdStr) {
+    return {
+      success: false,
+      status: 400,
+      message: 'Missing booking ID in Checkout Session metadata.',
+    };
+  }
+
+  const bookingsCollection = getBookingsCollection();
+  const paymentsCollection = getPaymentsCollection();
+  const parsedBookingId = parseBookingId(bookingIdStr);
+
+  const booking = await bookingsCollection.findOne({
+    _id: parsedBookingId as unknown as ObjectId,
+  });
+
+  if (!booking) {
+    return {
+      success: false,
+      status: 404,
+      message: 'Associated booking was not found.',
+    };
+  }
+
+  // Verify ownership
+  const customerIdMatches =
+    session.metadata?.customerId === customerUser.id ||
+    booking.customerId.toString() === customerUser.id ||
+    (booking as any).customerEmail === customerUser.email.toLowerCase();
+
+  if (!customerIdMatches && customerUser.role !== 'admin') {
+    return {
+      success: false,
+      status: 403,
+      message: 'You are not authorized to verify payment for this booking.',
+    };
+  }
+
+  // Verify currency and amount
+  if (session.currency?.toLowerCase() !== 'usd') {
+    return {
+      success: false,
+      status: 400,
+      message: `Currency mismatch: session currency is ${session.currency}, expected usd.`,
+    };
+  }
+
+  const expectedAmountInCents = Math.round((booking.finalAmount || 0) * 100);
+  if (session.amount_total !== expectedAmountInCents) {
+    return {
+      success: false,
+      status: 400,
+      message: `Amount mismatch: session has ${session.amount_total} cents, expected ${expectedAmountInCents} cents.`,
+    };
+  }
+
+  // Idempotency check: see if payment is already recorded
+  const existingPayment = await paymentsCollection.findOne({
+    $or: [
+      { stripeSessionId: session.id },
+      { bookingId: booking._id },
+    ],
+  });
+
+  if (existingPayment) {
+    return {
+      success: true,
+      status: 200,
+      message: 'Payment verified successfully (previously settled).',
+      data: {
+        paymentId: existingPayment._id?.toString(),
+        bookingId: booking._id!.toString(),
+        amount: existingPayment.amount,
+        currency: existingPayment.currency,
+        status: existingPayment.paymentStatus || 'paid',
+        stripePaymentIntentId: existingPayment.stripePaymentIntentId || undefined,
+        stripeSessionId: existingPayment.stripeSessionId,
+        paidAt: existingPayment.paidAt || existingPayment.createdAt,
+        serviceTitle: booking.serviceTitle,
+      },
+    };
+  }
+
+  // Atomically update booking payment status
+  const now = new Date();
+  await bookingsCollection.updateOne(
+    { _id: booking._id },
+    {
+      $set: {
+        paymentStatus: 'paid',
+        stripeSessionId: session.id,
+        updatedAt: now,
+      },
+    }
+  );
+
+  const paymentIntentId =
+    typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id || session.id;
+
+  const paymentDoc: PaymentDocument = {
+    bookingId: booking._id!,
+    serviceTitle: booking.serviceTitle,
+    customerId: booking.customerId,
+    customerName: booking.customerName,
+    customerEmail: session.customer_email || booking.customerEmail || customerUser.email,
+    technicianId: booking.technicianId,
+    technicianName: booking.technicianName,
+    technicianEmail: booking.technicianEmail,
+    amount: (session.amount_total || 0) / 100,
+    currency: session.currency || 'usd',
+    transactionId: paymentIntentId || session.id,
+    paymentStatus: 'paid',
+    stripeSessionId: session.id,
+    stripePaymentIntentId: paymentIntentId || null,
+    paidAt: now,
+    createdAt: now,
+  };
+
+  const insertResult = await paymentsCollection.insertOne(paymentDoc);
+
+  return {
+    success: true,
+    status: 200,
+    message: 'Payment verified and settled successfully.',
+    data: {
+      paymentId: insertResult.insertedId.toString(),
+      bookingId: booking._id!.toString(),
+      amount: paymentDoc.amount,
+      currency: paymentDoc.currency,
+      status: paymentDoc.paymentStatus,
+      stripePaymentIntentId: paymentDoc.stripePaymentIntentId || undefined,
+      stripeSessionId: paymentDoc.stripeSessionId,
+      paidAt: paymentDoc.paidAt,
+      serviceTitle: booking.serviceTitle,
     },
   };
 }

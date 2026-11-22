@@ -19,7 +19,14 @@ export interface UserDocument {
 }
 
 export type ServiceApprovalStatus = 'pending' | 'approved' | 'rejected';
-export type ServiceMode = 'onsite' | 'remote' | 'both';
+export type ServiceMode =
+  | 'Home Visit'
+  | 'Shop Drop-off'
+  | 'home-visit'
+  | 'drop-off'
+  | 'onsite'
+  | 'remote'
+  | 'both';
 
 export interface ServiceDocument {
   _id?: ObjectId;

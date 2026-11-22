@@ -53,7 +53,7 @@ export function buildTechnicianOwnershipFilter(techUser: AuthenticatedUser): Fil
 export interface PublicServiceQueryParams {
   search?: string;
   category?: string;
-  serviceMode?: 'onsite' | 'remote' | 'both';
+  serviceMode?: string;
   minPrice?: number;
   maxPrice?: number;
   sort: 'newest' | 'price_asc' | 'price_desc';
@@ -68,12 +68,20 @@ export async function getPublicServices(params: PublicServiceQueryParams) {
     isAvailable: true,
   };
 
-  if (params.category) {
-    filter.category = params.category;
+  if (params.category && params.category.trim().length > 0) {
+    const escapedCat = escapeRegex(params.category.trim());
+    filter.category = { $regex: new RegExp(`^${escapedCat}$`, 'i') } as any;
   }
 
-  if (params.serviceMode) {
-    filter.serviceMode = params.serviceMode;
+  if (params.serviceMode && params.serviceMode.trim().length > 0) {
+    const mode = params.serviceMode.trim();
+    if (mode === 'Home Visit' || mode === 'home-visit' || mode === 'onsite') {
+      filter.serviceMode = { $in: ['Home Visit', 'home-visit', 'onsite'] as any };
+    } else if (mode === 'Shop Drop-off' || mode === 'drop-off' || mode === 'remote') {
+      filter.serviceMode = { $in: ['Shop Drop-off', 'drop-off', 'remote'] as any };
+    } else {
+      filter.serviceMode = mode as any;
+    }
   }
 
   if (params.minPrice !== undefined || params.maxPrice !== undefined) {

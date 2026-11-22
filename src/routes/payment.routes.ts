@@ -9,6 +9,7 @@ import {
   handleStripeWebhookEvent,
   getCustomerPayments,
   getBookingPaymentStatus,
+  verifyCheckoutSession,
 } from '../services/payment.service.js';
 import {
   verifyToken,
@@ -62,6 +63,54 @@ router.post(
       res.status(200).json({
         success: true,
         message: 'Stripe Checkout Session created successfully.',
+        data: result.data,
+        statusCode: 200,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/**
+ * POST /api/payments/verify-session
+ * Customer verifies and settles Stripe Checkout Session on return to /payment/success.
+ */
+router.post(
+  '/payments/verify-session',
+  verifyToken,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const sessionId = req.body?.sessionId;
+      if (!sessionId || typeof sessionId !== 'string') {
+        res.status(400).json({
+          success: false,
+          error: 'BadRequest',
+          message: 'sessionId is required.',
+          statusCode: 400,
+        });
+        return;
+      }
+
+      const result = await verifyCheckoutSession(req.user!, sessionId);
+      if (!result.success) {
+        res.status(result.status).json({
+          success: false,
+          error:
+            result.status === 404
+              ? 'NotFound'
+              : result.status === 403
+              ? 'Forbidden'
+              : 'BadRequest',
+          message: result.message,
+          statusCode: result.status,
+        });
+        return;
+      }
+
+      res.status(200).json({
+        success: true,
+        message: result.message,
         data: result.data,
         statusCode: 200,
       });
