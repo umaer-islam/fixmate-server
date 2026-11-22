@@ -17,7 +17,6 @@ import {
 } from '../services/booking.service.js';
 import {
   verifyToken,
-  verifyCustomer,
   verifyTechnician,
   verifyAdmin,
 } from '../middleware/auth.middleware.js';
@@ -35,7 +34,6 @@ const router = Router();
 router.post(
   '/bookings',
   verifyToken,
-  verifyCustomer,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedBody = createBookingSchema.safeParse(req.body);
@@ -80,7 +78,6 @@ router.post(
 router.get(
   '/bookings/my',
   verifyToken,
-  verifyCustomer,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedQuery = bookingQuerySchema.safeParse(req.query);
@@ -121,7 +118,6 @@ router.get(
 router.get(
   '/bookings/:id',
   verifyToken,
-  verifyCustomer,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedParams = idParamSchema.safeParse(req.params);
@@ -165,7 +161,6 @@ router.get(
 router.patch(
   '/bookings/:id/cancel',
   verifyToken,
-  verifyCustomer,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const parsedParams = idParamSchema.safeParse(req.params);

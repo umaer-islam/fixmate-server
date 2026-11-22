@@ -277,10 +277,16 @@ export async function getCustomerBookingById(
   const bookingsCollection = getBookingsCollection();
   const parsedId = parseBookingId(bookingId);
 
-  return await bookingsCollection.findOne({
+  const filter: Filter<BookingDocument> = {
     _id: parsedId as unknown as ObjectId,
-    ...buildCustomerBookingOwnershipFilter(customerUser),
-  });
+  };
+
+  // Admins can inspect any customer booking; other roles are scoped to their owned bookings
+  if (customerUser.role !== 'admin') {
+    Object.assign(filter, buildCustomerBookingOwnershipFilter(customerUser));
+  }
+
+  return await bookingsCollection.findOne(filter);
 }
 
 /**
@@ -292,7 +298,9 @@ export async function cancelCustomerBooking(
 ): Promise<BookingServiceResult> {
   const bookingsCollection = getBookingsCollection();
   const parsedId = parseBookingId(bookingId);
-  const customerFilter = buildCustomerBookingOwnershipFilter(customerUser);
+  const customerFilter = customerUser.role === 'admin'
+    ? {}
+    : buildCustomerBookingOwnershipFilter(customerUser);
 
   const now = new Date();
 
