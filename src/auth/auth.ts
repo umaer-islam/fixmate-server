@@ -10,11 +10,13 @@ export type FixMateAuth = ReturnType<typeof createAuthInstance>;
 let authInstance: FixMateAuth | null = null;
 
 export function createAuthInstance(db: Db) {
+  const cleanUrl = (url?: string) => (url ? url.replace(/\/+$/, '') : '');
   const allowedOrigins = [
-    env.CLIENT_URL,
+    cleanUrl(env.CLIENT_URL),
+    'https://fixmate23.vercel.app',
     'http://localhost:3000',
     'http://localhost:5000',
-    env.BETTER_AUTH_URL,
+    cleanUrl(env.BETTER_AUTH_URL),
   ].filter(Boolean);
 
   return betterAuth({
