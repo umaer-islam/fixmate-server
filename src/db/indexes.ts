@@ -62,6 +62,14 @@ export async function initializeIndexes(): Promise<void> {
         name: 'idx_services_public_browse',
       },
       {
+        key: { approvalStatus: 1, isAvailable: 1, createdAt: -1 },
+        name: 'idx_services_public_active',
+      },
+      {
+        key: { technicianId: 1, approvalStatus: 1 },
+        name: 'idx_services_tech_status',
+      },
+      {
         key: { title: 'text', description: 'text' },
         name: 'idx_services_text_search',
       },

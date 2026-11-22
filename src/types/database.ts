@@ -19,21 +19,25 @@ export interface UserDocument {
 }
 
 export type ServiceApprovalStatus = 'pending' | 'approved' | 'rejected';
-export type ServiceMode = 'home-visit' | 'drop-off' | 'remote';
+export type ServiceMode = 'onsite' | 'remote' | 'both' | 'home-visit' | 'drop-off';
 
 export interface ServiceDocument {
   _id?: ObjectId;
-  technicianId: ObjectId;
+  technicianId: ObjectId | string;
+  technicianName: string;
   technicianEmail: string;
   title: string;
   description: string;
   category: string;
   serviceMode: ServiceMode;
   basePrice: number;
-  turnaroundTime: string;
+  estimatedDuration: string;
+  turnaroundTime?: string;
+  serviceArea?: string;
+  image?: string;
   imageUrl?: string;
   approvalStatus: ServiceApprovalStatus;
-  isAvailable?: boolean;
+  isAvailable: boolean;
   moderationNotes?: string;
   createdAt: Date;
   updatedAt: Date;

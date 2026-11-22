@@ -6,6 +6,7 @@ import { toNodeHandler } from 'better-auth/node';
 import { env } from './config/env.js';
 import { getAuth } from './auth/auth.js';
 import healthRoutes from './routes/health.routes.js';
+import serviceRoutes from './routes/service.routes.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import {
   verifyToken,
@@ -60,7 +61,10 @@ app.all('/api/auth/{*splat}', authHandler);
 // 2. Base API Health Route
 app.use('/api', healthRoutes);
 
-// 3. Role Authorization Test/Verification Routes
+// 3. Domain Services Management Routes
+app.use('/api', serviceRoutes);
+
+// 4. Role Authorization Test/Verification Routes
 app.get(
   '/api/test/customer',
   verifyToken,
