@@ -33,68 +33,57 @@ router.post(
         return;
       }
 
-      let imageData = parsed.data.image;
-      // Strip data:image/...;base64, prefix if provided
+      const rawImage = parsed.data.image.trim();
+      let imageData = rawImage;
       if (imageData.includes('base64,')) {
         imageData = imageData.split('base64,')[1];
       }
 
       const apiKey = env.IMGBB_API_KEY;
+      let finalUrl = '';
 
-      if (!apiKey || apiKey === 'placeholder_imgbb_api_key') {
-        // If no external ImgBB key configured in dev, if a full URL was provided return it,
-        // or return a hosted data URL/avatar placeholder so the flow succeeds
-        if (parsed.data.image.startsWith('http://') || parsed.data.image.startsWith('https://')) {
-          res.status(200).json({
-            success: true,
-            url: parsed.data.image,
-            display_url: parsed.data.image,
-            statusCode: 200,
+      if (rawImage.startsWith('http://') || rawImage.startsWith('https://')) {
+        finalUrl = rawImage;
+      } else if (apiKey && apiKey !== 'placeholder_imgbb_api_key') {
+        try {
+          const formData = new URLSearchParams();
+          formData.append('image', imageData);
+          if (parsed.data.name) {
+            formData.append('name', parsed.data.name);
+          }
+
+          const imgbbRes = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: formData.toString(),
           });
-          return;
+
+          const json = (await imgbbRes.json()) as any;
+          if (imgbbRes.ok && json?.data?.url) {
+            finalUrl = json.data.url;
+          } else {
+            console.warn('[Upload] ImgBB error, falling back to data URL:', json?.error?.message);
+            finalUrl = `data:image/jpeg;base64,${imageData}`;
+          }
+        } catch (fetchErr) {
+          console.warn('[Upload] ImgBB network issue, falling back to data URL:', fetchErr);
+          finalUrl = `data:image/jpeg;base64,${imageData}`;
         }
-
-        res.status(200).json({
-          success: true,
-          url: `https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80`,
-          display_url: `https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80`,
-          statusCode: 200,
-        });
-        return;
-      }
-
-      // Live ImgBB upload
-      const formData = new URLSearchParams();
-      formData.append('image', imageData);
-      if (parsed.data.name) {
-        formData.append('name', parsed.data.name);
-      }
-
-      const imgbbRes = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
-      });
-
-      const json = await imgbbRes.json() as any;
-
-      if (!imgbbRes.ok || !json?.data?.url) {
-        res.status(502).json({
-          success: false,
-          error: 'BadGateway',
-          message: json?.error?.message || 'Failed to upload image to ImgBB.',
-          statusCode: 502,
-        });
-        return;
+      } else {
+        // Safe fallback: preserve user's real uploaded photo as a high-fidelity data URI
+        finalUrl = `data:image/jpeg;base64,${imageData}`;
       }
 
       res.status(200).json({
         success: true,
-        url: json.data.url,
-        display_url: json.data.display_url || json.data.url,
-        delete_url: json.data.delete_url,
+        url: finalUrl,
+        display_url: finalUrl,
+        data: {
+          url: finalUrl,
+          display_url: finalUrl,
+        },
         statusCode: 200,
       });
     } catch (error) {

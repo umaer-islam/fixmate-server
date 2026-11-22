@@ -67,16 +67,16 @@ app.use(
   express.raw({ type: 'application/json' })
 );
 
-// Payload size restrictions to mitigate DoS for standard JSON endpoints
+// Payload size restrictions supporting device image base64 uploads
 app.use(
   express.json({
-    limit: '1mb',
+    limit: '15mb',
     verify: (req: any, _res: any, buf: Buffer) => {
       req.rawBody = buf;
     },
   })
 );
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 app.use(cookieParser());
 
 // 1. BetterAuth Handler mounted under /api/auth/* before conflicting routes
