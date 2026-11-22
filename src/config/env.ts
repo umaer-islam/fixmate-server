@@ -38,7 +38,8 @@ const envSchema = z
       if (
         !data.BETTER_AUTH_SECRET ||
         data.BETTER_AUTH_SECRET.length < 32 ||
-        data.BETTER_AUTH_SECRET.includes('dev_better_auth_secret')
+        data.BETTER_AUTH_SECRET.includes('dev_better_auth_secret') ||
+        data.BETTER_AUTH_SECRET.includes('your_better_auth_secret')
       ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -49,7 +50,8 @@ const envSchema = z
       if (
         !data.JWT_SECRET ||
         data.JWT_SECRET.length < 32 ||
-        data.JWT_SECRET.includes('dev_jwt_secret')
+        data.JWT_SECRET.includes('dev_jwt_secret') ||
+        data.JWT_SECRET.includes('your_jwt_secret')
       ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -65,18 +67,10 @@ const envSchema = z
         });
       }
       if (!data.STRIPE_SECRET_KEY || data.STRIPE_SECRET_KEY.includes('sk_test_placeholder')) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['STRIPE_SECRET_KEY'],
-          message: 'Valid STRIPE_SECRET_KEY is required in production.',
-        });
+        console.warn('⚠️ [Production Warning]: STRIPE_SECRET_KEY is missing or placeholder. Stripe checkout operations will remain inactive until a live key is added.');
       }
       if (!data.STRIPE_WEBHOOK_SECRET || data.STRIPE_WEBHOOK_SECRET.includes('whsec_placeholder')) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['STRIPE_WEBHOOK_SECRET'],
-          message: 'Valid STRIPE_WEBHOOK_SECRET is required in production.',
-        });
+        console.warn('⚠️ [Production Warning]: STRIPE_WEBHOOK_SECRET is missing or placeholder. Stripe webhook reconciliation will remain inactive until a live key is added.');
       }
     }
   });
