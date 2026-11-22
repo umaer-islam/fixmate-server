@@ -90,7 +90,6 @@ const authHandler = async (req: Request, res: Response, next: any) => {
 };
 
 app.all('/api/auth', authHandler);
-app.all('/api/auth/*', authHandler);
 app.all('/api/auth/{*splat}', authHandler);
 
 // 2. Base API Health Route
