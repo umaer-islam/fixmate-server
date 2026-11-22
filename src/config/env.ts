@@ -14,7 +14,21 @@ const envSchema = z.object({
     }),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   CLIENT_URL: z.string().default('http://localhost:3000'),
+  MONGODB_URI: z.string().optional(),
   DATABASE_URL: z.string().optional(),
+  DB_NAME: z.string().default('fixmate'),
+  MONGODB_TIMEOUT_MS: z
+    .string()
+    .default('5000')
+    .transform((val) => {
+      const parsed = parseInt(val, 10);
+      if (isNaN(parsed)) return 5000;
+      return parsed;
+    }),
+  ALLOW_DEGRADED_STARTUP: z
+    .string()
+    .optional()
+    .transform((val) => val === 'true' || val === '1'),
   JWT_SECRET: z.string().optional(),
   BETTER_AUTH_SECRET: z.string().optional(),
   BETTER_AUTH_URL: z.string().optional(),
@@ -31,3 +45,7 @@ if (!parsedEnv.success) {
 }
 
 export const env = parsedEnv.data;
+
+export const getMongoURI = (): string => {
+  return env.MONGODB_URI || env.DATABASE_URL || '';
+};
