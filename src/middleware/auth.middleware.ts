@@ -4,8 +4,28 @@ import { verifyJwtToken } from '../services/jwt.service.js';
 import { getUsersCollection } from '../db/collections.js';
 import { getDB } from '../db/connection.js';
 import type { UserDocument, UserRole } from '../types/database.js';
+import type { AuthenticatedUser } from '../types/auth.js';
 
 const VALID_ROLES: UserRole[] = ['customer', 'technician', 'admin'];
+
+// In-memory token verification cache (60s TTL) to eliminate redundant DB lookups on concurrent/consecutive requests
+interface CachedAuthUser {
+  user: AuthenticatedUser;
+  expiresAt: number;
+}
+const tokenVerificationCache = new Map<string, CachedAuthUser>();
+
+export function invalidateTokenCache(tokenOrUserId?: string) {
+  if (!tokenOrUserId) {
+    tokenVerificationCache.clear();
+    return;
+  }
+  for (const [key, val] of tokenVerificationCache.entries()) {
+    if (key === tokenOrUserId || val.user.id === tokenOrUserId || val.user.email === tokenOrUserId) {
+      tokenVerificationCache.delete(key);
+    }
+  }
+}
 
 export async function verifyToken(
   req: Request,
@@ -59,30 +79,39 @@ export async function verifyToken(
     return;
   }
 
+  // Check in-memory fast cache first
+  const cached = tokenVerificationCache.get(token);
+  if (cached && Date.now() < cached.expiresAt) {
+    req.user = cached.user;
+    return next();
+  }
+
   try {
     let resolvedUserId: string | ObjectId | undefined;
 
-    // 2. Check if token is a BetterAuth session token in MongoDB 'session' collection
-    // BetterAuth session cookies often have format "token.signature" - check both full and prefix
-    const cleanToken = token.includes('.') && token.split('.').length === 2 ? token.split('.')[0] : token;
-    const db = getDB();
-    const sessionDoc = await db.collection('session').findOne({
-      $or: [
-        { token: token },
-        { token: cleanToken },
-      ],
-      expiresAt: { $gt: new Date() },
-    });
+    // Check if token is a standard 3-part EdDSA JWT
+    const isJwt = token.split('.').length === 3;
 
-    if (sessionDoc && sessionDoc.userId) {
-      resolvedUserId = sessionDoc.userId;
+    if (isJwt) {
+      // Fast path: verify JWT directly without querying session collection
+      const verifiedPayload = await verifyJwtToken(token);
+      if (verifiedPayload?.sub) {
+        resolvedUserId = verifiedPayload.sub;
+      }
     } else {
-      // 3. Fallback: if token is a 3-part EdDSA JWT, verify with BetterAuth JWKS
-      if (token.split('.').length === 3) {
-        const verifiedPayload = await verifyJwtToken(token);
-        if (verifiedPayload?.sub) {
-          resolvedUserId = verifiedPayload.sub;
-        }
+      // BetterAuth session token path (cookies)
+      const cleanToken = token.includes('.') && token.split('.').length === 2 ? token.split('.')[0] : token;
+      const db = getDB();
+      const sessionDoc = await db.collection('session').findOne({
+        $or: [
+          { token: token },
+          { token: cleanToken },
+        ],
+        expiresAt: { $gt: new Date() },
+      });
+
+      if (sessionDoc && sessionDoc.userId) {
+        resolvedUserId = sessionDoc.userId;
       }
     }
 
@@ -96,8 +125,7 @@ export async function verifyToken(
       return;
     }
 
-    // 4. Authoritative Database Role Enforcement:
-    // Query the authoritative 'users' collection to verify account existence and current role.
+    // Authoritative Database Role Enforcement:
     const usersCollection = getUsersCollection();
     const subStr = resolvedUserId.toString();
 
@@ -151,6 +179,12 @@ export async function verifyToken(
       role: currentRole,
       name: userDoc.name,
     };
+
+    // Cache verified user for 60 seconds to make subsequent parallel/sequential requests instant
+    tokenVerificationCache.set(token, {
+      user: req.user,
+      expiresAt: Date.now() + 60_000,
+    });
 
     next();
   } catch (error) {

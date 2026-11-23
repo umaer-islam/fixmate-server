@@ -23,8 +23,30 @@ export async function initializeIndexes(): Promise<void> {
         key: { role: 1 },
         name: 'idx_users_role',
       },
+      {
+        key: { id: 1 },
+        name: 'idx_users_id_lookup',
+      },
     ]);
     console.log(' - Users indexes initialized.');
+
+    // 1.1 BETTERAUTH SESSION INDEXES
+    try {
+      const sessionColl = db.collection('session');
+      await sessionColl.createIndexes([
+        {
+          key: { token: 1 },
+          name: 'idx_session_token',
+        },
+        {
+          key: { userId: 1 },
+          name: 'idx_session_user_id',
+        },
+      ]);
+      console.log(' - BetterAuth session indexes initialized.');
+    } catch {
+      // Session collection created dynamically by BetterAuth
+    }
 
     // 2. SERVICES COLLECTION INDEXES
     const services = getServicesCollection();
