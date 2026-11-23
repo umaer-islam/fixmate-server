@@ -45,6 +45,9 @@ export async function connectDB(customUri?: string): Promise<Db> {
       newClient = new MongoClient(uri, {
         serverSelectionTimeoutMS: env.MONGODB_TIMEOUT_MS,
         connectTimeoutMS: env.MONGODB_TIMEOUT_MS,
+        maxPoolSize: 25,
+        minPoolSize: 2,
+        maxIdleTimeMS: 60000,
         serverApi: {
           version: ServerApiVersion.v1,
           strict: false,
