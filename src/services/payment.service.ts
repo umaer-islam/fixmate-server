@@ -16,7 +16,7 @@ export type PaymentServiceResult<T = any> =
 export async function createCheckoutSession(
   customerUser: AuthenticatedUser,
   bookingId: string
-): Promise<PaymentServiceResult<{ url: string; sessionId: string }>> {
+): Promise<PaymentServiceResult<{ url: string; sessionUrl?: string; sessionId: string }>> {
   const bookingsCollection = getBookingsCollection();
   const paymentsCollection = getPaymentsCollection();
   const parsedId = parseBookingId(bookingId);
@@ -94,6 +94,7 @@ export async function createCheckoutSession(
           success: true,
           data: {
             url: existingSession.url,
+            sessionUrl: existingSession.url,
             sessionId: existingSession.id,
           },
         };
@@ -147,6 +148,7 @@ export async function createCheckoutSession(
       success: true,
       data: {
         url: session.url!,
+        sessionUrl: session.url!,
         sessionId: session.id,
       },
     };
@@ -168,10 +170,12 @@ export async function createCheckoutSession(
         { $set: { stripeSessionId: fallbackSessionId, updatedAt: new Date() } }
       );
 
+      const successUrl = `${env.CLIENT_URL}/payment/success?session_id=${fallbackSessionId}`;
       return {
         success: true,
         data: {
-          url: `${env.CLIENT_URL}/payment/success?session_id=${fallbackSessionId}`,
+          url: successUrl,
+          sessionUrl: successUrl,
           sessionId: fallbackSessionId,
         },
       };
